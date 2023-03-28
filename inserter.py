@@ -1,6 +1,6 @@
-# Import necessary libraries
 import os
 import struct
+import shutil
 import tkinter as tk
 from tkinter import filedialog
 
@@ -26,6 +26,10 @@ file_path = filedialog.askopenfilename()
 INF_FILE = file_path[:-4] + ".INF"
 PACK_FILE = file_path
 OUTPUT_FILE = PACK_FILE[:-4] + "_NEW.WAD"
+NEW_INF_FILE = PACK_FILE[:-4] + "_NEW.INF"
+
+# Copy the original INF file to the new one
+shutil.copy(INF_FILE, NEW_INF_FILE)
 
 # Create a list to store the offset and size information for each file
 file_info = []
@@ -44,9 +48,16 @@ with open(INF_FILE, "rb") as f_inf:
         name = f_inf.read(0x10).decode("utf-8").rstrip("\0")
         file_info.append((name, offset, size))
 
+# Create a list to store the updated offset values
+updated_offsets = []
+
+# Create a list to store the modified file information
+modified_files = []
+
 # Open the output file for writing
 with open(OUTPUT_FILE, "wb") as f_out:
-
+    
+    index = 0  # initialize index
     # Loop over each file in the list and write its contents to the output file
     for name, offset, size in file_info:
         if name in file_list:
@@ -54,17 +65,59 @@ with open(OUTPUT_FILE, "wb") as f_out:
                 data = f_in.read()
                 f_out.seek(offset)
                 f_out.write(data)
+                # Update the offset to reflect the new location in the output file
+                new_offset = f_out.tell() // 0x800
+                # Store the updated offset value in the list
+                updated_offsets.append(new_offset)
+                index += 1  # increment index
+        else:
+            # If the file is not in the file_list, add its original offset value to the list
+            updated_offsets.append(offset // 0x800)
 
-# Update the INF file with the new offset and size information
-with open(INF_FILE, "wb") as f_inf:
+# Open the original WAD file and read its contents into a bytes object
+    with open(PACK_FILE, "rb") as f_in:
+        original_data = f_in.read()
+
+# Open the output WAD file and read its contents into
+    with open(OUTPUT_FILE, "rb") as f_out:
+        new_data = f_out.read()
+
+    #Compare the original and new data to find the offsets of any modified files
     for name, offset, size in file_info:
-        offset //= 0x800
-        f_inf.write(struct.pack("<L", offset))
-        f_inf.write(struct.pack("<L", size))
+        if name in file_list:
+            original_file = original_data[offset:offset+size]
+new_offset = new_data.find(original_file)
+if new_offset != offset:
+        modified_files.append((name, new_offset))
+
+#Open the new INF file for writing
+with open(NEW_INF_FILE, "wb") as f_inf:
+        index = 0
+        # Compare the original and new data to find the offsets of any modified files
+for name, offset, size in file_info:
+    if name in file_list:
+        original_file = original_data[offset:offset+size]
+        new_offset = new_data.find(original_file)
+        if new_offset != offset:
+            modified_files.append((name, new_offset))
+
+with open(NEW_INF_FILE, "wb") as f_inf:
+    for name, offset, size in file_info:
+        if name in file_list:
+            # Calculate the new offset for modified files
+            if modified_files and (name, offset) in modified_files:
+                offset = new_offset
+            # Get the new size of the modified file
+            new_size = len(open(os.path.join(folder_path, name), "rb").read())
+        else:
+            new_size = size
+        # Write the updated offset and size to the INF file
+        f_inf.write(struct.pack("<L", offset // 0x800))
+        f_inf.write(struct.pack("<L", new_size))
         # Encode the name of the file as a byte string and pad it with null bytes
         name_bytes = name.encode("utf-8")
         name_bytes += b"\0" * (0x10 - len(name_bytes))
         f_inf.write(name_bytes)
 
-# Print a message indicating the operation is complete
-print("Operation complete. The new file is located at " + OUTPUT_FILE + ".")
+
+print("File packing complete.")
