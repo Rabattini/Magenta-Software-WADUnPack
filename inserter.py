@@ -54,12 +54,12 @@ updated_offsets = []
 # Create a list to store the modified file information
 modified_files = []
 
-# Open the output file for writing
+# Open the output file again for reading and writing
 with open(OUTPUT_FILE, "wb") as f_out:
-    
+    f_out.truncate(os.path.getsize(PACK_FILE))
     index = 0  # initialize index
-    # Loop over each file in the list and write its contents to the output file
-    for name, offset, size in file_info:
+    end_offset = 0
+    for i, (name, offset, size) in enumerate(file_info):
         if name in file_list:
             with open(os.path.join(folder_path, name), "rb") as f_in:
                 data = f_in.read()
@@ -69,11 +69,35 @@ with open(OUTPUT_FILE, "wb") as f_out:
                 new_offset = f_out.tell() // 0x800
                 # Store the updated offset value in the list
                 updated_offsets.append(new_offset)
+                # Update the size value in the file_info list to match the original size
+                file_info[index] = (name, offset, len(data))
                 index += 1  # increment index
+                end_offset = new_offset
+                print(f"File {name} written at offset {offset}, new offset: {new_offset}, size: {len(data)}")
+                
+                # Check if the current file overlaps with the next file
+                if i < len(file_info) - 1:
+                    cur_end_offset = offset + len(data)
+                    next_start_offset = file_info[i+1][1]
+                    if cur_end_offset > next_start_offset:
+                        # Adjust the start offset of the next file to the next multiple of 0x800
+                        next_start_offset = ((cur_end_offset // 0x800) + 1) * 0x800
+                        file_info[i+1] = (file_info[i+1][0], next_start_offset, file_info[i+1][2])
+                        if i+1 < len(updated_offsets):
+                         updated_offsets[i+1] = next_start_offset // 0x800
+                        else:
+                         updated_offsets.append(next_start_offset // 0x800)
+                         print(f"File {file_info[i+1][0]} moved to offset {updated_offsets[i+1] * 0x800}")
         else:
             # If the file is not in the file_list, add its original offset value to the list
             updated_offsets.append(offset // 0x800)
-
+            index += 1
+            
+    # Check if end offset is valid
+    file_size = os.path.getsize(OUTPUT_FILE)
+    if (end_offset + 1) * 0x800 > file_size:
+        print("End offset is invalid")
+        
 # Open the original WAD file and read its contents into a bytes object
     with open(PACK_FILE, "rb") as f_in:
         original_data = f_in.read()
